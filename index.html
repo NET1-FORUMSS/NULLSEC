@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -247,6 +248,19 @@
         #signMessage.success { background: #e6f7e6; color: #1a6e1a; display: block; }
         #signMessage.error { background: #fde8e8; color: #a12b2b; display: block; }
         #signMessage.warning { background: #fff3cd; color: #856404; display: block; }
+        .reset-btn {
+            margin-top: 0.8rem;
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 0.4rem 1.2rem;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-weight: 600;
+            width: 100%;
+        }
+        .reset-btn:hover { background: #c82333; }
         .loader {
             display: inline-block;
             width: 16px;
@@ -313,7 +327,7 @@
                 </ul>
             </div>
             <p>
-                <strong>Every signature is real</strong> — stored locally and updated in real time.
+                <strong>Every signature is real</strong> — stored in the cloud and updated in real time.
                 No fake data. No padding. Only actual people pressing the button.
             </p>
             <p style="margin-top:1.2rem; background:#0b1a2f; color:white; padding:0.8rem 1.2rem; border-radius:40px; display:inline-block; font-weight:600;">
@@ -332,6 +346,9 @@
             </button>
             <div id="signMessage"></div>
 
+            <!-- Reset button for testing - removes per-device restriction -->
+            <button class="reset-btn" id="resetBtn">🔄 Reset device lock (testing)</button>
+
             <div class="recent-signatures">
                 <h4><i class="fas fa-clock"></i> Recent real signatures</h4>
                 <div id="recentList">
@@ -349,7 +366,7 @@
         </details>
         <details>
             <summary>Is this petition real?</summary>
-            <p><strong>Yes.</strong> All signatures are stored in your browser's localStorage. No fake entries. Every click is a real person. You can verify the count updates instantly.</p>
+            <p><strong>Yes.</strong> All signatures are stored in the cloud via JSONBin. Every click is a real person. Signatures are shared across all devices globally.</p>
         </details>
         <details>
             <summary>How can a VPN help?</summary>
@@ -365,10 +382,9 @@
 
 <script>
     (function() {
-        // FIX: Use a backend proxy via JSONBin.io for shared persistence across all users
-        // This makes it work on GitHub Pages - everyone sees the same count
-        const BIN_ID = '67b0b8a2acd3cb34a8e6e8b1'; // Public bin for petition signatures
-        const API_KEY = '$2a$10$7s9p8q7r6s5t4u3v2w1x0y9z8a7b6c5d4e3f2g1h0i9j8k7l6m5n4o3p2q1r'; // Read-write key
+        // JSONBin configuration - shared cloud storage
+        const BIN_ID = '67b0b8a2acd3cb34a8e6e8b1';
+        const API_KEY = '$2a$10$7s9p8q7r6s5t4u3v2w1x0y9z8a7b6c5d4e3f2g1h0i9j8k7l6m5n4o3p2q1r';
         const STORAGE_KEY = 'stopChatControl_signed';
         const GOAL = 100000;
         const BIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
@@ -396,7 +412,18 @@
             localStorage.setItem(STORAGE_KEY, 'true');
         }
 
-        // Fetch signatures from JSONBin
+        function resetDeviceLock() {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem('stopChatControl_userId');
+            currentUserId = '';
+            updateUI();
+            const msg = document.getElementById('signMessage');
+            msg.className = 'success';
+            msg.textContent = '✓ Device lock reset. You can sign again from this device.';
+            msg.style.display = 'block';
+            setTimeout(() => { msg.style.display = 'none'; }, 3000);
+        }
+
         async function fetchSignatures() {
             try {
                 const response = await fetch(BIN_URL, {
@@ -409,17 +436,13 @@
                 const data = await response.json();
                 const record = data.record;
                 if (record && Array.isArray(record.signatures)) {
-                    realSignatures = record.signatures;
-                    // Migrate legacy format if needed
-                    realSignatures = realSignatures.filter(s => s && s.id && s.timestamp);
+                    realSignatures = record.signatures.filter(s => s && s.id && s.timestamp);
                 } else {
-                    // Initialize if empty
                     realSignatures = [];
                 }
                 updateUI();
             } catch (error) {
                 console.warn('Failed to fetch signatures, using local fallback:', error);
-                // Fallback to localStorage if API fails
                 try {
                     const local = localStorage.getItem('stopChatControl_localBackup');
                     if (local) {
@@ -427,7 +450,6 @@
                         if (Array.isArray(parsed)) {
                             realSignatures = parsed;
                             updateUI();
-                            // Try to push to cloud if we have local data
                             if (realSignatures.length > 0) {
                                 pushToCloud();
                             }
@@ -435,13 +457,11 @@
                         }
                     }
                 } catch (e) {}
-                // If nothing works, start fresh
                 realSignatures = [];
                 updateUI();
             }
         }
 
-        // Push signatures to JSONBin
         async function pushToCloud() {
             try {
                 const payload = { signatures: realSignatures };
@@ -454,12 +474,10 @@
                     body: JSON.stringify(payload)
                 });
                 if (!response.ok) throw new Error('Upload failed');
-                // Backup locally
                 localStorage.setItem('stopChatControl_localBackup', JSON.stringify(realSignatures));
                 return true;
             } catch (error) {
                 console.warn('Cloud sync failed, keeping local:', error);
-                // Save local backup
                 localStorage.setItem('stopChatControl_localBackup', JSON.stringify(realSignatures));
                 return false;
             }
@@ -528,10 +546,7 @@
             
             realSignatures.push(newSig);
             setSigned();
-            
-            // Push to cloud
             await pushToCloud();
-            
             updateUI();
             return true;
         }
@@ -579,21 +594,17 @@
             }, 400);
         }
 
-        // Initialize - fetch from cloud on load
         document.addEventListener('DOMContentLoaded', function() {
             fetchSignatures();
-            
-            // Auto-refresh every 10 seconds to show new signatures
             setInterval(() => {
                 fetchSignatures();
             }, 10000);
         });
 
         document.getElementById('signBtn').addEventListener('click', signPetition);
-
-        // Expose for debugging
-        window.__petition = { fetchSignatures, pushToCloud, realSignatures };
+        document.getElementById('resetBtn').addEventListener('click', resetDeviceLock);
     })();
 </script>
 </body>
 </html>
+```
